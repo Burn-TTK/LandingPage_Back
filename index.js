@@ -1,60 +1,68 @@
-const { createClient } = require("@supabase/supabase-js");
-require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const app = express();
+const fs = require("fs");
+const swaggerUi = require("swagger-ui-express");
+const swaggerJsdoc = require("swagger-jsdoc");
 
+const app = express();
+const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
-);
+// JSON 데이터 불러오기
+const menuData = JSON.parse(fs.readFileSync("./restaurant_menu_data.json", "utf-8"));
 
-app.post("/restaurant", async (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).send("식당 이름은 필수입니다.");
+// Swagger 설정
+const swaggerOptions = {
+    definition: {
+        openapi: "3.0.0",
+        info: {
+            title: "Restaurant Menu API",
+            version: "1.0.0",
+            description: "식당 및 메뉴 정보를 제공하는 API"
+        },
+        servers: [{ url: "http://localhost:3000" }]
+    },
+    apis: ["./index.js"]
+};
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-    const { error } = await supabase
-        .from("information")
-        .insert([{ restaurant: name }]);
-
-    if (error) {
-        console.error("에러:", error.message);
-        return res.status(500).send("식당 저장 중 에러 발생");
-    }
-
-    res.status(200).send("식당 정보 저장 완료");
+/**
+ * @swagger
+ * /restaurants:
+ *   get:
+ *     summary: 전체 식당 이름 목록 가져오기
+ *     responses:
+ *       200:
+ *         description: 식당 이름 리스트
+ */
+app.get("/restaurants", (req, res) => {
+    const restaurants = [...new Set(menuData.map(item => item.restaurant_name))];
+    res.json(restaurants.map((name, index) => ({ id: index + 1, name })));
 });
 
-app.post("/phone", async (req, res) => {
-    const { phone } = req.body;
-
-    const { data: latest, error } = await supabase
-        .from("information")
-        .select("*")
-        .order("id", { ascending: false })
-        .limit(1);
-
-    if (error || !latest || latest.length === 0)
-        return res.status(400).send("먼저 식당을 입력해야 합니다.");
-
-    const latestId = latest[0].id;
-
-    const { error: updateError } = await supabase
-        .from("information")
-        .update({ phone })
-        .eq("id", latestId);
-
-    if (updateError) {
-        console.error("전화번호 저장 오류:", updateError.message);
-        return res.status(500).send("전화번호 저장 실패");
-    }
-
-    res.status(200).send("전화번호 저장 완료");
+/**
+ * @swagger
+ * /restaurants/{name}/menu:
+ *   get:
+ *     summary: 특정 식당의 메뉴 가져오기
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: 해당 식당의 메뉴 리스트
+ */
+app.get("/restaurants/:name/menu", (req, res) => {
+    const { name } = req.params;
+    const filteredMenu = menuData.filter(item => item.restaurant_name === name);
+    res.json(filteredMenu);
 });
 
-app.listen(5000, () => {
-    console.log("서버 실행 중: http://localhost:5000");
+app.listen(PORT, () => {
+    console.log(`✅ API Server running at http://localhost:${PORT}`);
 });
